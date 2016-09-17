@@ -15,7 +15,7 @@ T_EMAIL = Tech's Email
 C_DATE = Current Date
 """
 
-import time, smtplib
+import time, smtplib, webbrowser
 
 from email.mime.text import MIMEText
 from Tkinter import *
@@ -25,6 +25,8 @@ from ttk import *
 # Window width and height
 width = 700
 height = 400
+# URL for flash drive site
+flash_drive_url = "https://applications.delta.edu/OITStudent/Lists/Flash%20Drives/All%20Check%20In.aspx"
 
 
 class App(Frame):
@@ -86,23 +88,36 @@ class App(Frame):
   def get_preview_text(self):
     return self.preview_text.get(1.0, END)
 
-  def send_email_button(self):
+  def create_popup_window(self, message):
+    # Creates a popup window with automatic dimensions based on the message
     popup = Toplevel()
-    w = 250
-    h = 75
+    popup.columnconfigure(0, weight=1)
+    popup.rowconfigure(0, weight=1)
+    popup_label = Label(popup, text=message)
+    popup_label.grid(column=0, row=0, sticky=(N, W, E, S), padx=5, pady=5)
+    w = popup_label.winfo_reqwidth() + 25
+    h = popup_label.winfo_reqheight() + 50
     x = (self.parent.winfo_screenwidth() - w)   / 2
     y = (self.parent.winfo_screenheight() - h) / 2
     popup.geometry("%dx%d+%d+%d" % (w, h, x, y))
-    popup.columnconfigure(0, weight=1)
-    popup.rowconfigure(0, weight=1)
+
+  def send_email_button(self):
     if not send_email(self.get_preview_text(), self.owner_email.get(), self.tech_email.get(), self.tech_password.get()):
       # Set popup to notify about Authenication failure
-      popup_label = Label(popup, text="Authentication failure!\nCheck the email / password.")
+      self.create_popup_window("Authentication failure!\nCheck the email / password.")
     else:
       # Set popup to notify Email success
-      popup_label = Label(popup, text="The email has been successfully sent!")
-    popup_label.grid(column=0, row=0, sticky=(N, W, E, S), padx=5, pady=5)
-      
+      self.create_popup_window("The email has been successfully sent!")
+
+  def open_flash_drives_page(self, browser=None):
+    if browser:
+      try:
+        webbrowser.get(browser).open_new_tab(flash_drive_url)
+      except:
+        self.create_popup_window("Couldn't locate Firefox!\nOpened with default browser.")
+        webbrowser.open(flash_drive_url)
+    else:
+      webbrowser.open(flash_drive_url)
 
   def createWidgets(self):
     self.grid(column=0, row=0, sticky=(N, W, E, S))
@@ -184,6 +199,13 @@ class App(Frame):
     for child in frame_right.winfo_children(): child.grid_configure(padx=4, pady=4)
     
     # ==BOTTOM==
+    
+    # Button to open flash drive website
+    flash_drive_button1 = Button(self, text="Open Flash Drive Page", command=self.open_flash_drives_page)
+    flash_drive_button1.grid(column=0, row=1, stick=W)
+    
+    flash_drive_button1 = Button(self, text="Open Flash Drive Page in Firefox", command=lambda: self.open_flash_drives_page('firefox'))
+    flash_drive_button1.grid(column=0, row=1, stick=E)
     
     # Button to close the window
     close_button = Button(self, text="Close", command=self.quit)
