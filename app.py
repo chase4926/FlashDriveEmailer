@@ -15,18 +15,89 @@ T_EMAIL = Tech's Email
 C_DATE = Current Date
 """
 
-import time, smtplib, webbrowser
+
+import time, ssl, random, re, smtplib, webbrowser, requests, lxml.html
 
 from email.mime.text import MIMEText
 from Tkinter import *
 from ttk import *
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.poolmanager import PoolManager
 
 
 # Window width and height
-width = 700
-height = 400
+width = 1050
+height = 600
+
 # URL for flash drive site
 flash_drive_url = "https://applications.delta.edu/OITStudent/Lists/Flash%20Drives/All%20Check%20In.aspx"
+
+# Variables for use with directory scraper
+URL = 'https://applications.delta.edu/OITStudent/_layouts/Picker.aspx?MultiSelect=False&CustomProperty=User%3B%3B15%3B%3B%3BFalse&DialogTitle=Select People&DialogImage=%2F_layouts%2Fimages%2Fppeople.gif&PickerDialogType=Microsoft.SharePoint.WebControls.PeoplePickerDialog%2C Microsoft.SharePoint%2C Version%3D12.0.0.0%2C Culture%3Dneutral%2C PublicKeyToken%3D71e9bce111e9429c&EntitySeparator=%3B&DefaultSearch='
+URL_LOGIN = 'https://applications.delta.edu/CookieAuth.dll?Logon'
+
+payload = {
+  'curl':'Z2F',
+  'flags':'0',
+  'forcedownlevel':'0',
+  'formdir':'3',
+  'trusted':'0',
+  'SubmitCreds':'Log+On'}
+
+user_agents = ("Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.1",
+  "Mozilla/5.0 (Windows NT 6.3; rv:36.0) Gecko/20100101 Firefox/36.0",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10; rv:33.0) Gecko/20100101 Firefox/33.0",
+  "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2227.1 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2227.0 Safari/537.36")
+
+ua = user_agents[random.randrange(len(user_agents))]
+headers = {'user-agent': ua}
+
+
+class MyAdapter(HTTPAdapter):
+  # Grabbed this from a website, needed to support this SSL protocol
+  def init_poolmanager(self, connections, maxsize, block=False):
+    self.poolmanager = PoolManager(num_pools=connections,
+      maxsize=maxsize,
+      block=block,
+      ssl_version=ssl.PROTOCOL_TLSv1)
+
+
+def grab_directory_html(username, password, searchterm):
+  # Make a copy of the payload and add the username and password to it
+  full_payload = dict(payload)
+  full_payload['username'] = username
+  full_payload['password'] = password
+  session = requests.Session()
+  # Forces https to use ssl.PROTOCOL_TLSv1
+  session.mount("https://", MyAdapter())
+  # Obtain an authenication cookie from the login page
+  session.post(URL_LOGIN, data=full_payload, headers=headers)
+  # Grab the desired page & return it
+  return session.get(URL + searchterm, headers=headers).text
+
+
+def extract_names_from_html(html):
+  tree = lxml.html.fromstring(html)
+  table = tree.find_class("ms-pickerresulttable")
+  if table == []:
+    # Bad username / password probably
+    return "Failed"
+  rows = table[0].findall('tr')
+  result = []
+  for row in rows:
+    tds = row.find_class("ms-pb")
+    if len(tds) == 0:
+      continue
+    result.append([
+      # Name
+      re.search('<\/a>.*<\/td>', lxml.html.tostring(tds[0])).group(0)[4:-5].replace("&lt;",'<').replace("&gt;",'>'),
+      # Email
+      tds[3].text,
+      # Directory
+      tds[4].text])
+  return result
 
 
 class App(Frame):
@@ -60,8 +131,10 @@ class App(Frame):
     parent.columnconfigure(0, weight=1)
     parent.rowconfigure(0, weight=1)
     self.columnconfigure(0, weight=1)
-    self.columnconfigure(1, weight=1)
+    self.columnconfigure(1, weight=2)
+    self.columnconfigure(2, weight=1)
     self.rowconfigure(0, weight=1)
+    self.directory_dict = {}
     self.update_preview()
 
   def update_owner_email(self):
@@ -119,6 +192,31 @@ class App(Frame):
     else:
       webbrowser.open(flash_drive_url)
 
+  def refresh_button(self):
+    if self.tech_email.get() and self.tech_password.get():
+      html = grab_directory_html(self.tech_email.get(),
+                                 self.tech_password.get(),
+                                 self.owner_first_name.get()+self.owner_last_name.get())
+      names = extract_names_from_html(html)
+      if names == "Failed":
+        self.create_popup_window("Failed to grab listing!\nCheck your username / password.")
+      else:
+        self.directory_dict = names
+        self.update_listbox()
+    else:
+      self.create_popup_window("You need to enter a valid username/password first!")
+
+  def update_listbox(self):
+    self.listbox.delete(0, END)
+    for idx, val in enumerate(self.directory_dict):
+      self.listbox.insert(idx+1, val[0])
+
+  def listbox_selection_change(self, event=None):
+    self.owner_email.set(self.directory_dict[self.listbox.curselection()[0]][1])
+
+  def yview(self, *args):
+    apply(self.listbox.yview, args)
+
   def createWidgets(self):
     self.grid(column=0, row=0, sticky=(N, W, E, S))
     
@@ -127,9 +225,14 @@ class App(Frame):
     frame_left.grid(column=0, row=0, sticky=(N, W, E, S))
     frame_left.columnconfigure(0, weight=1)
     frame_left.columnconfigure(1, weight=4)
+    # Frame to hold the middle of the app
+    frame_mid = Frame(self, borderwidth=1)
+    frame_mid.grid(column=1, row=0, sticky=(N, W, E, S))
+    frame_mid.columnconfigure(0, weight=1)
+    frame_mid.rowconfigure(1, weight=1)
     # Frame to hold the right side of the app
     frame_right = Frame(self, borderwidth=1)
-    frame_right.grid(column=1, row=0, sticky=(N, W, E, S))
+    frame_right.grid(column=2, row=0, sticky=(N, W, E, S))
     frame_right.columnconfigure(0, weight=1)
     frame_right.rowconfigure(1, weight=1)
     
@@ -187,8 +290,29 @@ class App(Frame):
     name_entry7 = Entry(frame_left, show="*", textvariable=self.tech_password)
     name_entry7.grid(column=1, row=7, sticky=(W, E))
     
+    # ==MIDDLE==
+    # Refresh button (Refreshes the listbox representing the directory)
+    refresh_button = Button(frame_mid, text="Refresh Listing", command=self.refresh_button)
+    refresh_button.grid(column=0, row=0, sticky=W)
+    
+    # Checkbox to auto-bcc
+    
+    # Listbox of possible owners
+    listbox_frame = Frame(frame_mid)
+    listbox_frame.grid(column=0, row=1, sticky=(N, W, E, S))
+    listbox_frame.columnconfigure(0, weight=1)
+    listbox_frame.rowconfigure(0, weight=1)
+    
+    scrollbar = Scrollbar(listbox_frame, orient=VERTICAL, command=self.yview)
+    scrollbar.grid(column=1, row=0, sticky=(N, S))
+    
+    self.listbox = Listbox(listbox_frame, width=40, yscrollcommand=scrollbar.set)
+    self.listbox.grid(column=0, row=0, sticky=(N, W, E, S))
+    self.listbox.bind("<<ListboxSelect>>", self.listbox_selection_change)
+    
+    
     # ==RIGHT SIDE==
-    # Frame to hold the email preview
+    # Email preview
     preview_label = Label(frame_right, text="Email Preview:")
     preview_label.grid(column=0, row=0, sticky=W)
     
@@ -196,6 +320,7 @@ class App(Frame):
     self.preview_text.grid(column=0, row=1, sticky=(N, W, E, S))
     
     for child in frame_left.winfo_children(): child.grid_configure(padx=4, pady=4)
+    for child in frame_mid.winfo_children(): child.grid_configure(padx=4, pady=4)
     for child in frame_right.winfo_children(): child.grid_configure(padx=4, pady=4)
     
     # ==BOTTOM==
@@ -209,10 +334,10 @@ class App(Frame):
     
     # Button to close the window
     close_button = Button(self, text="Close", command=self.quit)
-    close_button.grid(column=1, row=1, sticky=E)
+    close_button.grid(column=2, row=1, sticky=E)
     # Button to send the email
     send_button = Button(self, text="Send Email", command=lambda: self.send_email_button())
-    send_button.grid(column=1, row=1, sticky=W)
+    send_button.grid(column=2, row=1, sticky=W)
 
 
 def get_email_message(tech_name, from_email):

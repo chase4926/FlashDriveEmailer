@@ -13,7 +13,7 @@ if sys.platform == "win32":
 target = Executable(
   script = "app.py",
   base = base,
-  compress = True,
+  compress = False,
   copyDependentFiles = True,
   appendScriptToExe = True,
   appendScriptToLibrary = False,
