@@ -187,12 +187,21 @@ class App(Frame):
     popup.geometry("%dx%d+%d+%d" % (w, h, x, y))
 
   def send_email_button(self):
-    if not send_email(self.get_preview_text(), self.owner_email.get(), self.tech_email.get(), self.tech_password.get()):
+    if not send_email(self.get_preview_text(), self.get_email_list(), self.tech_email.get(), self.tech_password.get()):
       # Set popup to notify about Authenication failure
       self.create_popup_window("Authentication failure!\nCheck the email / password.")
     else:
       # Set popup to notify Email success
       self.create_popup_window("The email has been successfully sent!")
+
+  def get_email_list(self):
+    current_indices = self.listbox.curselection()
+    if len(current_indices) > 1:
+      # Return all selected items
+      return [self.directory_dict[x][1] for x in current_indices]
+    else:
+      # If one item or nothing is selected, return the manual entry field
+      return [self.owner_email.get()]
 
   def open_flash_drives_page(self, browser=None):
     if browser:
@@ -204,7 +213,8 @@ class App(Frame):
     else:
       webbrowser.open(flash_drive_url)
 
-  def refresh_button(self):
+  def retrieve_button(self):
+    self.listbox_clear()
     if self.tech_email.get() and self.tech_password.get():
       html = grab_directory_html(self.tech_email.get(),
                                  self.tech_password.get(),
@@ -223,8 +233,40 @@ class App(Frame):
     for idx, val in enumerate(self.directory_dict):
       self.listbox.insert(idx+1, val[0])
 
+  def enable_owner_email(self):
+    self.owner_email_entry["state"] = "enabled"
+
+  def disable_owner_email(self):
+    self.owner_email_entry.delete(0, END)
+    self.owner_email_entry["state"] = "disabled"
+
   def listbox_selection_change(self, event=None):
-    self.owner_email.set(self.directory_dict[self.listbox.curselection()[0]][1])
+    # Called when the user selects a different item in the listbox
+    current_indices = self.listbox.curselection()
+    if len(current_indices) > 1:
+      # Disable manual email entry when multiple emails are selected
+      self.disable_owner_email()
+    elif len(current_indices) == 1:
+      # Enable manual entry when only one is selected
+      self.enable_owner_email()
+      self.owner_email.set(self.directory_dict[current_indices[0]][1])
+    else:
+      # Enable manual entry when none are selected
+      self.enable_owner_email()
+      self.update_owner_email()
+
+  def listbox_clear(self, event=None):
+    self.listbox.selection_clear(0, self.listbox.size() - 1)
+    self.enable_owner_email()
+    self.update_owner_email()
+
+  def listbox_select_all(self, event=None):
+    if self.listbox.size() > 0:
+      self.listbox.selection_set(0, self.listbox.size() - 1)
+      if self.listbox.size() > 1:
+        self.disable_owner_email()
+      else:
+        self.owner_email.set(self.directory_dict[0][1])
 
   def yview(self, *args):
     apply(self.listbox.yview, args)
@@ -267,8 +309,8 @@ class App(Frame):
     name_label3 = Label(frame_left, text="Owner's Delta Email:")
     name_label3.grid(column=0, row=2, sticky=W)
     
-    name_entry3 = Entry(frame_left, textvariable=self.owner_email)
-    name_entry3.grid(column=1, row=2, sticky=(W, E))
+    self.owner_email_entry = Entry(frame_left, textvariable=self.owner_email)
+    self.owner_email_entry.grid(column=1, row=2, sticky=(W, E))
     
     # Seperator
     sep = Separator(frame_left, orient=HORIZONTAL)
@@ -303,11 +345,9 @@ class App(Frame):
     name_entry7.grid(column=1, row=7, sticky=(W, E))
     
     # ==MIDDLE==
-    # Refresh button (Refreshes the listbox representing the directory)
-    refresh_button = Button(frame_mid, text="Refresh Listing", command=self.refresh_button)
-    refresh_button.grid(column=0, row=0, sticky=W)
-    
-    # Checkbox to auto-bcc
+    # Retrieve button (Retrieves listings for the listbox)
+    retrieve_button = Button(frame_mid, text="Retrieve Listing", command=self.retrieve_button)
+    retrieve_button.grid(column=0, row=0, sticky=W)
     
     # Listbox of possible owners
     listbox_frame = Frame(frame_mid)
@@ -318,7 +358,7 @@ class App(Frame):
     scrollbar = Scrollbar(listbox_frame, orient=VERTICAL, command=self.yview)
     scrollbar.grid(column=1, row=0, sticky=(N, S))
     
-    self.listbox = Listbox(listbox_frame, width=40, yscrollcommand=scrollbar.set)
+    self.listbox = Listbox(listbox_frame, width=40, selectmode="multiple", yscrollcommand=scrollbar.set)
     self.listbox.grid(column=0, row=0, sticky=(N, W, E, S))
     self.listbox.bind("<<ListboxSelect>>", self.listbox_selection_change)
     
@@ -344,6 +384,13 @@ class App(Frame):
     flash_drive_button1 = Button(self, text="Open Flash Drive Page in Firefox", command=lambda: self.open_flash_drives_page('firefox'))
     flash_drive_button1.grid(column=0, row=1, stick=E)
     
+    # Select All button
+    select_button = Button(self, text="Select All", command=self.listbox_select_all)
+    select_button.grid(column=1, row=1, sticky=W)
+    # Clear button
+    clear_button = Button(self, text="Clear Selection", command=self.listbox_clear)
+    clear_button.grid(column=1, row=1, sticky=E)
+    
     # Button to close the window
     close_button = Button(self, text="Close", command=self.quit)
     close_button.grid(column=2, row=1, sticky=E)
@@ -365,13 +412,16 @@ def send_email(message, to_email, from_email, password):
   msg = MIMEText(message)
   msg['Subject'] = "Missing Flash Drive Two Month Notice"
   msg['From'] = from_email
-  msg['To'] = to_email
+  if type(to_email) != list:
+    # If sending to a single recipient, add the To: header
+    msg['To'] = to_email
+    to_email = [to_email]
   server = smtplib.SMTP('smtp.office365.com', 587)
   server.ehlo()
   server.starttls()
   try:
     server.login(from_email, password)
-    server.sendmail(from_email, [to_email], msg.as_string())
+    server.sendmail(from_email, to_email, msg.as_string())
   except smtplib.SMTPAuthenticationError:
     # Authenication failed
     server.quit()
