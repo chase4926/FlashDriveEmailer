@@ -16,13 +16,25 @@ C_DATE = Current Date
 """
 
 
-import time, ssl, random, re, smtplib, webbrowser, requests, lxml.html
+import os, time, ssl, random, re, smtplib, webbrowser, requests, lxml.html
 
 from email.mime.text import MIMEText
 from Tkinter import *
 from ttk import *
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.poolmanager import PoolManager
+
+
+def find_data_file(filename):
+  if getattr(sys, 'frozen', False):
+    # The application is frozen
+    datadir = os.path.dirname(sys.executable)
+  else:
+    # The application is not frozen
+    # Change this bit to match where you store your data files:
+    datadir = os.path.dirname(__file__)
+  return os.path.join(datadir, filename)
+
 
 
 # Window width and height
@@ -73,7 +85,7 @@ def grab_directory_html(username, password, searchterm):
   # Forces https to use ssl.PROTOCOL_TLSv1
   session.mount("https://", MyAdapter())
   # Obtain an authenication cookie from the login page
-  session.post(URL_LOGIN, data=full_payload, headers=headers)
+  session.post(URL_LOGIN, data=full_payload, headers=headers, verify=find_data_file("cacert.pem"))
   # Grab the desired page & return it
   return session.get(URL + searchterm, headers=headers).text
 

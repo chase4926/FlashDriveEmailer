@@ -1,28 +1,18 @@
-import sys
-from cx_Freeze import setup, Executable
 
-# Dependencies are automatically detected, but it might need fine tuning.
-build_exe_options = {"include_files": ["template.txt"]}
+from distutils.core import setup
+import py2exe, sys, os, requests.certs
 
-# GUI applications require a different base on Windows (the default is for a
-# console application).
-base = None
-if sys.platform == "win32":
-  base = "Win32GUI"
+sys.argv.append('py2exe')
 
-target = Executable(
-  script = "app.py",
-  base = base,
-  compress = False,
-  copyDependentFiles = True,
-  appendScriptToExe = True,
-  appendScriptToLibrary = False,
-  icon = "icon.ico")
-
-setup(  name = "FlashDriveEmailer",
-  version = "1.0",
-  description = "Delta College Flash Drive Emailer",
-  author = "Chase Arnold",
-  options = {"build_exe": build_exe_options},
-  executables = [target])
-
+setup(windows=[{'script': 'app.py',
+                'icon_resources': [(1, "icon.ico")]}],
+            options={"py2exe": {"includes": ["time", "ssl", "random",
+                                             "re", "smtplib",
+                                             "webbrowser", "requests",
+                                             "lxml", "gzip",
+                                             "email.mime.text",
+                                             "Tkinter", "ttk",
+                                             "requests", "ssl"],
+            "packages": ["gzip", "lxml", "ssl"],
+            'bundle_files': 3, 'compressed': False}},
+            zipfile = None)
